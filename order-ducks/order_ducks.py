@@ -58,7 +58,6 @@ trace_exporter = OTLPSpanExporter(
 )
 trace_provider.add_span_processor(BatchSpanProcessor(trace_exporter))
 trace.set_tracer_provider(trace_provider)
-trace.set_tracer_provider(TracerProvider(resource=resource))
 
 
 def publish_order_message(order_msg):
