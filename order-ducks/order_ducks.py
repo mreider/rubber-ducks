@@ -8,6 +8,7 @@ from opentelemetry.trace import SpanKind
 from opentelemetry.propagate import inject
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.trace import SpanKind
+from opentelemetry.sdk.trace import TracerProvider
 
 
 
@@ -41,6 +42,7 @@ metadata.update({
 })
 
 resource = Resource.create(metadata)
+trace.set_tracer_provider(TracerProvider(resource=resource))
 
 def publish_order_message(order_msg):
     """
@@ -49,7 +51,7 @@ def publish_order_message(order_msg):
     """
     # Build a headers dict and inject current trace context
     headers = {}
-    tracer = trace.get_tracer(__name__, resource=resource)
+    tracer = trace.get_tracer(__name__)
 
     # Create the order span (this is part of the order trace)
     with tracer.start_as_current_span("order_creation", kind=SpanKind.SERVER) as span:
@@ -80,7 +82,7 @@ def publish_order_message(order_msg):
 
 @app.route("/api/order", methods=["POST"])
 def create_order():
-    tracer = trace.get_tracer(__name__, resource=resource)
+    tracer = trace.get_tracer(__name__)
     with tracer.start_as_current_span("HTTP POST /api/order", kind=SpanKind.SERVER) as span:
         try:
             # Simulate order creation logic (e.g., checking inventory, etc.)
