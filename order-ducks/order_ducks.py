@@ -2,6 +2,7 @@ import json
 import logging
 import uuid
 import pika
+import os
 from flask import Flask, request, jsonify
 from opentelemetry import trace
 from opentelemetry.trace import SpanKind

@@ -3,6 +3,7 @@ import logging
 import requests
 import time
 import sys
+import os
 from opentelemetry import trace
 from opentelemetry.trace import SpanKind
 from opentelemetry.propagate import inject
