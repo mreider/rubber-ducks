@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: duck-aggregator-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: duck-aggregator-worker
+  template:
+    metadata:
+      labels:
+        app: duck-aggregator-worker
+    spec:
+      containers:
+      - name: duck-aggregator-worker
+        image: gcr.io/dynatrace-dev-on-demand/duck-aggregator-worker:latest
+        imagePullPolicy: Always  # Ensures the image is pulled every time
+        env:
+        - name: DT_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: dynatrace-otel-secrets
+              key: DT_API_TOKEN
+        - name: DT_ENDPOINT
+          valueFrom:
+            secretKeyRef:
+              name: dynatrace-otel-secrets
+              key: DT_ENDPOINT
+        ports:
+        - containerPort: 8000

@@ -1,0 +1,24 @@
+apiVersion: dynatrace.com/v1beta3
+kind: DynaKube
+metadata:
+  name: dynakube
+  namespace: dynatrace
+spec:
+  apiUrl: https://abl46885.dev.dynatracelabs.com/api
+  tokens: dynakube
+  metadataEnrichment:
+    enabled: true
+    namespaceSelector:
+      matchLabels:
+        dynatrace.com/inject: "true"
+  activeGate:
+    capabilities:
+      - routing
+      - kubernetes-monitoring
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1.5Gi

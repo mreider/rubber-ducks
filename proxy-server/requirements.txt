@@ -1,0 +1,9 @@
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-exporter-otlp-proto-http
+opentelemetry-instrumentation
+opentelemetry-instrumentation-requests
+flask
+redis
+pika
+requests

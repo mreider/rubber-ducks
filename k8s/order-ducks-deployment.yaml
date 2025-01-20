@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-ducks
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: order-ducks
+  template:
+    metadata:
+      labels:
+        app: order-ducks
+    spec:
+      containers:
+        - name: order-ducks
+          image: gcr.io/dynatrace-dev-on-demand/order-ducks:latest  # Use 'latest' or your preferred tag
+          imagePullPolicy: Always  # Forces Kubernetes to pull the image from GCR
+          ports:
+            - containerPort: 5000
+          env:
+          - name: DT_API_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: dynatrace-otel-secrets
+                key: DT_API_TOKEN
+          - name: DT_ENDPOINT
+            valueFrom:
+              secretKeyRef:
+                name: dynatrace-otel-secrets
+                key: DT_ENDPOINT
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: order-ducks-service
+spec:
+  selector:
+    app: order-ducks
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 5000

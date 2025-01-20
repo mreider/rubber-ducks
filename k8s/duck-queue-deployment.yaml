@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: duck-queue
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: duck-queue
+  template:
+    metadata:
+      labels:
+        app: duck-queue
+    spec:
+      containers:
+        - name: duck-queue
+          image: gcr.io/dynatrace-dev-on-demand/duck-queue:latest  # Use 'latest' or your preferred tag
+          imagePullPolicy: Always  # Ensures the image is pulled every time
+          ports:
+            - containerPort: 5672
+          env:
+          - name: DT_API_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: dynatrace-otel-secrets
+                key: DT_API_TOKEN
+          - name: DT_ENDPOINT
+            valueFrom:
+              secretKeyRef:
+                name: dynatrace-otel-secrets
+                key: DT_ENDPOINT
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: duck-queue-service
+spec:
+  selector:
+    app: duck-queue
+  ports:
+    - protocol: TCP
+      port: 5672
+      targetPort: 5672

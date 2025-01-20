@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proxy-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: proxy-server
+  template:
+    metadata:
+      labels:
+        app: proxy-server
+    spec:
+      containers:
+        - name: proxy-server
+          image: gcr.io/dynatrace-dev-on-demand/proxy-server:latest  # Use 'latest' or your preferred tag
+          imagePullPolicy: Always  # Ensures the image is pulled every time
+          ports:
+            - containerPort: 5001
+          env:
+          - name: DT_API_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: dynatrace-otel-secrets
+                key: DT_API_TOKEN
+          - name: DT_ENDPOINT
+            valueFrom:
+              secretKeyRef:
+                name: dynatrace-otel-secrets
+                key: DT_ENDPOINT
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proxy-server-service
+spec:
+  selector:
+    app: proxy-server
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 5001
