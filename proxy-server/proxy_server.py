@@ -8,6 +8,14 @@ from opentelemetry.trace import SpanKind
 from opentelemetry.propagate import inject
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+dt_endpoint = os.getenv("DT_ENDPOINT", "http://localhost:4317")
+dt_api_token = os.getenv("DT_API_TOKEN", "")
+if not dt_endpoint or not dt_api_token:
+    raise ValueError("Both DT_ENDPOINT and DT_API_TOKEN environment variables must be set.")
+
 
 # Initialize logging and OpenTelemetry tracer
 logger = logging.getLogger(__name__)
@@ -39,7 +47,13 @@ metadata.update({
 resource = Resource.create(metadata)
 
 # Set the TracerProvider with the resource
-trace.set_tracer_provider(TracerProvider(resource=resource))
+trace_provider = TracerProvider(resource=resource)
+trace_exporter = OTLPSpanExporter(
+    endpoint=f"{dt_endpoint}/v1/traces",
+    headers={"Authorization": f"Api-Token {dt_api_token}"}
+)
+trace_provider.add_span_processor(BatchSpanProcessor(trace_exporter))
+trace.set_tracer_provider(trace_provider)
 
 def proxy_request():
     """Continuously proxy requests to the order-ducks service every 5 seconds."""

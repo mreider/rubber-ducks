@@ -9,12 +9,20 @@ from opentelemetry.propagate import inject
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.trace import SpanKind
 from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 
 
 # Initialize logging and OpenTelemetry tracer
 logger = logging.getLogger(__name__)
 app = Flask(__name__)
+
+dt_endpoint = os.getenv("DT_ENDPOINT", "http://localhost:4317")
+dt_api_token = os.getenv("DT_API_TOKEN", "")
+if not dt_endpoint or not dt_api_token:
+    raise ValueError("Both DT_ENDPOINT and DT_API_TOKEN environment variables must be set.")
+
 
 # RabbitMQ exchange setup
 rabbit_host = "duck-queue-service"
@@ -42,7 +50,16 @@ metadata.update({
 })
 
 resource = Resource.create(metadata)
+
+trace_provider = TracerProvider(resource=resource)
+trace_exporter = OTLPSpanExporter(
+    endpoint=f"{dt_endpoint}/v1/traces",
+    headers={"Authorization": f"Api-Token {dt_api_token}"}
+)
+trace_provider.add_span_processor(BatchSpanProcessor(trace_exporter))
+trace.set_tracer_provider(trace_provider)
 trace.set_tracer_provider(TracerProvider(resource=resource))
+
 
 def publish_order_message(order_msg):
     """
