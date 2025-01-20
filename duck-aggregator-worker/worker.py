@@ -73,7 +73,7 @@ rabbit_host = "duck-queue-service"
 aggregator_queue = "aggregator_queue"
 
 # Redis connection (for example, setting this up in case you want to use it for storing partial results)
-redis_client = redis.StrictRedis(host="localhost", port=6379, db=0)
+redis_client = redis.StrictRedis(host='duck-db-service', port=6379, db=0)
 
 def handle_aggregator(ch, method, properties, body):
     tracer = trace.get_tracer(__name__)

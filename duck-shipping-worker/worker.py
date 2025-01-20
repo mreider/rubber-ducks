@@ -84,7 +84,7 @@ def some_redis_operation():
         span.set_attribute("db.name", "example_database")  # Optionally specify database name
         
         # Example Redis GET operation
-        redis_client = redis.StrictRedis(host='localhost', port=6379, db=0)
+        redis_client = redis.StrictRedis(host='duck-db-service', port=6379, db=0)
         result = redis_client.get('some_key')
         span.set_attribute("redis.key", 'some_key')
         span.set_attribute("redis.result", result)
