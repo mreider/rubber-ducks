@@ -98,8 +98,8 @@ def publish_shipping_result(ch, shipping_result):
     with tracer.start_as_current_span("publish_shipping_result", kind=trace.SpanKind.PRODUCER) as span:
         # Add semantic attributes for messaging
         span.set_attribute("messaging.system", "rabbitmq")
-        span.set_attribute("messaging.destination", aggregator_queue)
-        span.set_attribute("messaging.operation", "send")
+        span.set_attribute("messaging.destination.name", aggregator_queue)
+        span.set_attribute("messaging.operation.name", "send")
         
         headers = {}
         inject(headers)  # Re-inject the trace context for the publish span
@@ -122,8 +122,8 @@ def ship_order(ch, method, properties, body):
     with tracer.start_as_current_span("shipping_consume", context=ctx, kind=trace.SpanKind.CONSUMER) as span:
         # Add semantic attributes for messaging
         span.set_attribute("messaging.system", "rabbitmq")
-        span.set_attribute("messaging.source", shipping_queue)
-        span.set_attribute("messaging.operation", "consume")
+        span.set_attribute("messaging.destination.name", shipping_queue)
+        span.set_attribute("messaging.operation.name", "consume")
         
         try:
             order = json.loads(body)

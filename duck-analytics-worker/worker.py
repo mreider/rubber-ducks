@@ -123,9 +123,8 @@ def analyze_order(ch, method, properties, body):
     # Create a new span for consuming the message from RabbitMQ
     with tracer.start_as_current_span("analytics_consume", context=ctx, kind=trace.SpanKind.CONSUMER) as span:
         span.set_attribute("messaging.system", "rabbitmq")
-        span.set_attribute("messaging.source", analytics_queue)
-        span.set_attribute("messaging.operation", "consume")
-
+        span.set_attribute("messaging.destination.name", analytics_queue)
+        span.set_attribute("messaging.operation.name", "consume")
         try:
             order = json.loads(body)
             order_id = order["id"]
