@@ -99,8 +99,8 @@ def publish_analytics_result(ch, analytics_result):
     with tracer.start_as_current_span("publish_analytics_result", kind=trace.SpanKind.PRODUCER) as span:
         
         span.set_attribute("messaging.system", "rabbitmq")
-        span.set_attribute("messaging.destination", aggregator_queue)
-        span.set_attribute("messaging.operation", "send")
+        span.set_attribute("messaging.destination.name", aggregator_queue)
+        span.set_attribute("messaging.operation.name", "send")
         
         headers = {}
         inject(headers)  # Re-inject the trace context for the publisher span
