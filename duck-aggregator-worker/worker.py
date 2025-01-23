@@ -85,8 +85,8 @@ def handle_aggregator(ch, method, properties, body):
     # Create span for consuming from RabbitMQ
     with tracer.start_as_current_span("aggregator_consume", context=ctx, kind=SpanKind.CONSUMER) as span:
         span.set_attribute("messaging.system", "rabbitmq")
-        span.set_attribute("messaging.source", aggregator_queue)
-        span.set_attribute("messaging.operation", "consume")
+        span.set_attribute("messaging.destination.name", aggregator_queue)
+        span.set_attribute("messaging.operation.name", "consume")
         try:
             msg = json.loads(body)
             order_id = msg.get("order_id")
