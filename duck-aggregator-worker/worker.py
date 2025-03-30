@@ -2,21 +2,45 @@ import json
 import logging
 import os
 import sys
-import pika
+# import pika  # Removed pika import
 import redis
+from celery import Celery  # Added celery import
 
-from opentelemetry import trace
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk._logs import LoggerProvider
-from opentelemetry._logs import set_logger_provider
-from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
-from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
-from opentelemetry.propagate import extract
-from opentelemetry.trace import SpanKind
+OTEL_ENABLED = os.getenv("OTEL_ENABLED", "true").lower() != "false"
 
+if OTEL_ENABLED:
+    from opentelemetry import trace
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk._logs import LoggerProvider
+    from opentelemetry._logs import set_logger_provider
+    from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+    from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
+    from opentelemetry.propagate import extract
+    from opentelemetry.trace import SpanKind
+else:
+    class DummyCtx:
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc_val, exc_tb): pass
+        def set_attribute(self, key, value): pass
+        def link(self, link): pass
+    class DummyTracer:
+        def start_as_current_span(self, name, **kwargs):
+            return DummyCtx()
+        def get_tracer(self, name):
+            return self
+    trace = DummyTracer()
+    SpanKind = type("SpanKind", (), {"CONSUMER": None})
+    Resource = lambda **kwargs: {}
+    def extract(headers): return {}
+    LoggerProvider = lambda **kwargs: None
+    def set_logger_provider(lp): pass
+    BatchSpanProcessor = lambda exporter: None
+    OTLPSpanExporter = lambda **kwargs: None
+    BatchLogRecordProcessor = lambda x: None
+    OTLPLogExporter = lambda **kwargs: None
 
 # For Redis instrumentation
 from opentelemetry.instrumentation.redis import RedisInstrumentor
@@ -69,26 +93,36 @@ logger_provider.add_log_record_processor(
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-rabbit_host = "duck-queue-service"
-aggregator_queue = "aggregator_queue"
+# rabbit_host = "duck-queue-service"  # Removed rabbit_host
+# aggregator_queue = "aggregator_queue"  # Removed aggregator_queue
+
+# Celery configuration
+celery_app = Celery('aggregator_worker',
+                    broker='pyamqp://guest@duck-queue-service//',  # RabbitMQ broker URL
+                    backend='redis://duck-db-service:6379/0')  # Redis backend URL
+
+celery_app.conf.task_routes = {
+    'worker.handle_aggregator': {'queue': 'aggregator_queue'},
+}
 
 # Redis connection (for example, setting this up in case you want to use it for storing partial results)
 redis_client = redis.StrictRedis(host='duck-db-service', port=6379, db=0)
 
-def handle_aggregator(ch, method, properties, body):
+@celery_app.task(name='worker.handle_aggregator')  # Define Celery task
+def handle_aggregator(body):
     tracer = trace.get_tracer(__name__)
 
     # Extract trace context from the incoming message
-    received_headers = properties.headers or {}
+    received_headers = body.get('headers') or {}
     ctx = extract(received_headers)
     
     # Create span for consuming from RabbitMQ
     with tracer.start_as_current_span("aggregator_consume", context=ctx, kind=SpanKind.CONSUMER) as span:
         span.set_attribute("messaging.system", "rabbitmq")
-        span.set_attribute("messaging.destination.name", aggregator_queue)
+        span.set_attribute("messaging.destination.name", "aggregator_queue")
         span.set_attribute("messaging.operation.name", "consume")
         try:
-            msg = json.loads(body)
+            msg = json.loads(body.get('body'))
             order_id = msg.get("order_id")
             span.set_attribute("order_id", order_id)
 
@@ -109,24 +143,13 @@ def handle_aggregator(ch, method, properties, body):
 
                 redis_span.set_attribute("redis.result", "stored")  # Storing result in Redis
                 logger.info(f"Stored partial result for order_id {order_id} in Redis")
-
-            # Acknowledge message after processing
-            ch.basic_ack(delivery_tag=method.delivery_tag)
         
         except Exception as e:
             logger.error("Aggregator worker failed to process message", exc_info=True)
-            ch.basic_ack(delivery_tag=method.delivery_tag)
 
 def main():
-    logger.info("[aggregator-worker] Connecting to RabbitMQ...")
-    connection = pika.BlockingConnection(pika.ConnectionParameters(host=rabbit_host))
-    channel = connection.channel()
-
-    channel.queue_declare(queue=aggregator_queue, durable=True)
-
-    logger.info("[aggregator-worker] Starting to consume aggregator_queue...")
-    channel.basic_consume(queue=aggregator_queue, on_message_callback=handle_aggregator, auto_ack=False)
-    channel.start_consuming()
+    logger.info("[aggregator-worker] Starting Celery worker...")
+    # No need to connect to RabbitMQ or consume directly; Celery handles that.
 
 if __name__ == "__main__":
     try:

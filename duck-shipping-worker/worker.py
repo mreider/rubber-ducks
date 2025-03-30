@@ -1,11 +1,48 @@
+import os
+OTEL_ENABLED = os.getenv("OTEL_ENABLED", "true").lower() != "false"
+
+if OTEL_ENABLED:
+    from opentelemetry import trace
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk._logs import LoggerProvider
+    from opentelemetry._logs import set_logger_provider
+    from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+    from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
+    from opentelemetry.propagate import extract, inject
+else:
+    class DummyCtx:
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc_val, exc_tb): pass
+        def set_attribute(self, key, value): pass
+    class DummyTracer:
+        def start_as_current_span(self, name, **kwargs):
+            return DummyCtx()
+        def get_tracer(self, name):
+            return self
+    trace = DummyTracer()
+    Resource = lambda **kwargs: {}
+    def inject(headers): pass
+    def extract(headers): return {}
+    def set_logger_provider(lp): pass
+    # Dummy versions for log record processor functions
+    BatchSpanProcessor = lambda exporter: None
+    OTLPSpanExporter = lambda **kwargs: None
+    LoggerProvider = lambda **kwargs: None
+    BatchLogRecordProcessor = lambda x: None
+    OTLPLogExporter = lambda **kwargs: None
+
 import json
 import logging
 import os
 import sys
 import time
 
-import pika
+# import pika  # Removed pika import
 import redis
+from celery import Celery  # Added celery import
 from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
@@ -73,6 +110,15 @@ fanout_exchange = "duck_orders_fanout"
 shipping_queue = "shipping_queue"
 aggregator_queue = "aggregator_queue"
 
+# Celery configuration
+celery_app = Celery('shipping_worker',
+                    broker='pyamqp://guest@duck-queue-service//',  # RabbitMQ broker URL
+                    backend='redis://duck-db-service:6379/0')  # Redis backend URL
+
+celery_app.conf.task_routes = {
+    'worker.ship_order': {'queue': shipping_queue},
+}
+
 def some_redis_operation():
     tracer = trace.get_tracer(__name__)
     
@@ -91,7 +137,7 @@ def some_redis_operation():
         return result
 
 
-def publish_shipping_result(ch, shipping_result):
+def publish_shipping_result(shipping_result):
     tracer = trace.get_tracer(__name__)
     
     # Create new span for publishing the result with a producer kind
@@ -104,18 +150,22 @@ def publish_shipping_result(ch, shipping_result):
         headers = {}
         inject(headers)  # Re-inject the trace context for the publish span
         
-        ch.basic_publish(
-            exchange="",
-            routing_key=aggregator_queue,
-            body=json.dumps(shipping_result),
-            properties=pika.BasicProperties(headers=headers)
-        )
+        # ch.basic_publish(  # Removed pika publish
+        #     exchange="",
+        #     routing_key=aggregator_queue,
+        #     body=json.dumps(shipping_result),
+        #     properties=pika.BasicProperties(headers=headers)
+        # )
+        
+        # Send message to aggregator queue using Celery
+        send_to_aggregator.apply_async(args=[shipping_result], headers=headers, queue=aggregator_queue)
 
-def ship_order(ch, method, properties, body):
+@celery_app.task(name='worker.ship_order')  # Define Celery task
+def ship_order(body):
     tracer = trace.get_tracer(__name__)
     
     # Extract the trace context from the message
-    received_headers = properties.headers or {}
+    received_headers = body.get('headers') or {}
     ctx = extract(received_headers)
 
     # Start a consumer span for processing the message
@@ -126,7 +176,7 @@ def ship_order(ch, method, properties, body):
         span.set_attribute("messaging.operation.name", "consume")
         
         try:
-            order = json.loads(body)
+            order = json.loads(body.get('body'))
             order_id = order["id"]
             span.set_attribute("order_id", order_id)
             logger.info(f"[shipping-worker] Received order: {order}")
@@ -144,31 +194,31 @@ def ship_order(ch, method, properties, body):
             }
 
             # Publish the shipping result
-            publish_shipping_result(ch, shipping_result)
+            publish_shipping_result(shipping_result)
 
             logger.info(f"[shipping-worker] Shipped order {order_id}, published result to aggregator_queue.")
-            ch.basic_ack(delivery_tag=method.delivery_tag)
 
         except Exception as e:
             logger.error("Shipping worker failed to process message", exc_info=True)
-            ch.basic_ack(delivery_tag=method.delivery_tag)
+
+@celery_app.task(name='worker.send_to_aggregator')
+def send_to_aggregator(shipping_result):
+    tracer = trace.get_tracer(__name__)
+    with tracer.start_as_current_span("send_to_aggregator", kind=trace.SpanKind.PRODUCER) as span:
+        span.set_attribute("messaging.system", "rabbitmq")
+        span.set_attribute("messaging.destination.name", aggregator_queue)
+        span.set_attribute("messaging.operation.name", "send")
+        
+        # connection = pika.BlockingConnection(pika.ConnectionParameters(host="duck-queue-service"))
+        # channel = connection.channel()
+        # channel.queue_declare(queue=aggregator_queue, durable=True)
+        # channel.basic_publish(exchange="", routing_key=aggregator_queue, body=json.dumps(shipping_result))
+        # connection.close()
+        logger.info(f"Sent shipping result to aggregator queue: {shipping_result}")
 
 def main():
-    logger.info("[shipping-worker] Connecting to RabbitMQ...")
-    connection = pika.BlockingConnection(pika.ConnectionParameters(host=rabbit_host))
-    channel = connection.channel()
-
-    # Declare the necessary queues and exchanges
-    channel.exchange_declare(exchange=fanout_exchange, exchange_type="fanout", durable=True)
-    channel.queue_declare(queue=shipping_queue, durable=True)
-    channel.queue_bind(exchange=fanout_exchange, queue=shipping_queue)
-
-    # Declare the aggregator queue for final results
-    channel.queue_declare(queue=aggregator_queue, durable=True)
-
-    logger.info("[shipping-worker] Starting to consume from shipping_queue...")
-    channel.basic_consume(queue=shipping_queue, on_message_callback=ship_order, auto_ack=False)
-    channel.start_consuming()
+    logger.info("[shipping-worker] Starting Celery worker...")
+    # No need to connect to RabbitMQ or consume directly; Celery handles that.
 
 if __name__ == "__main__":
     try:

@@ -4,21 +4,44 @@ import os
 import sys
 import time
 
-import pika
+OTEL_ENABLED = os.getenv("OTEL_ENABLED", "true").lower() != "false"
+
+if OTEL_ENABLED:
+    from opentelemetry import trace
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk._logs import LoggerProvider
+    from opentelemetry._logs import set_logger_provider
+    from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+    from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
+    from opentelemetry.propagate import extract, inject
+else:
+    class DummyCtx:
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc_val, exc_tb): pass
+        def set_attribute(self, key, value): pass
+    class DummyTracer:
+        def start_as_current_span(self, name, **kwargs):
+            return DummyCtx()
+        def get_tracer(self, name):
+            return self
+    trace = DummyTracer()
+    Resource = lambda **kwargs: {}
+    def inject(headers): pass
+    def extract(headers): return {}
+
+    def set_logger_provider(lp): pass
+    BatchSpanProcessor = lambda exporter: None
+    OTLPSpanExporter = lambda **kwargs: None
+    LoggerProvider = lambda **kwargs: None
+    BatchLogRecordProcessor = lambda x: None
+    OTLPLogExporter = lambda **kwargs: None
+
+# import pika  # Removed pika import
 import redis
-from opentelemetry import trace
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk._logs import LoggerProvider
-from opentelemetry._logs import set_logger_provider
-from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
-from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
-
-
-# For extracting + injecting trace context
-from opentelemetry.propagate import extract, inject
+from celery import Celery  # Added celery import
 
 # For Redis instrumentation
 from opentelemetry.instrumentation.redis import RedisInstrumentor
@@ -68,11 +91,19 @@ logger_provider.add_log_record_processor(
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-rabbit_host = "duck-queue-service"
+# rabbit_host = "duck-queue-service"  # Removed rabbit_host
 fanout_exchange = "duck_orders_fanout"
 analytics_queue = "analytics_queue"
 aggregator_queue = "aggregator_queue"
 
+# Celery configuration
+celery_app = Celery('analytics_worker',
+                    broker='pyamqp://guest@duck-queue-service//',  # RabbitMQ broker URL
+                    backend='redis://duck-db-service:6379/0')  # Redis backend URL
+
+celery_app.conf.task_routes = {
+    'worker.analyze_order': {'queue': analytics_queue},
+}
 
 def some_redis_operation():
     tracer = trace.get_tracer(__name__)
@@ -92,7 +123,7 @@ def some_redis_operation():
         return result
 
 
-def publish_analytics_result(ch, analytics_result):
+def publish_analytics_result(analytics_result):
     tracer = trace.get_tracer(__name__)
     
     # Create a new span for publishing the analytics result, no propagation of trace context
@@ -105,19 +136,23 @@ def publish_analytics_result(ch, analytics_result):
         headers = {}
         inject(headers)  # Re-inject the trace context for the publisher span
         
-        ch.basic_publish(
-            exchange="",
-            routing_key=aggregator_queue,
-            body=json.dumps(analytics_result),
-            properties=pika.BasicProperties(headers=headers)
-        )
+        # ch.basic_publish(  # Removed pika publish
+        #     exchange="",
+        #     routing_key=aggregator_queue,
+        #     body=json.dumps(analytics_result),
+        #     properties=pika.BasicProperties(headers=headers)
+        # )
+        
+        # Send message to aggregator queue using Celery
+        send_to_aggregator.apply_async(args=[analytics_result], headers=headers, queue=aggregator_queue)
 
 
-def analyze_order(ch, method, properties, body):
+@celery_app.task(name='worker.analyze_order')  # Define Celery task
+def analyze_order(body):
     tracer = trace.get_tracer(__name__)
     
     # Extract trace context from incoming message (but no propagation)
-    received_headers = properties.headers or {}
+    received_headers = body.get('headers') or {}
     ctx = extract(received_headers)
 
     # Create a new span for consuming the message from RabbitMQ
@@ -126,7 +161,7 @@ def analyze_order(ch, method, properties, body):
         span.set_attribute("messaging.destination.name", analytics_queue)
         span.set_attribute("messaging.operation.name", "consume")
         try:
-            order = json.loads(body)
+            order = json.loads(body.get('body'))
             order_id = order["id"]
             span.set_attribute("order_id", order_id)
             logger.info(f"[analytics-worker] Received order: {order}")
@@ -144,31 +179,31 @@ def analyze_order(ch, method, properties, body):
             }
 
             # Now publish the result
-            publish_analytics_result(ch, analytics_result)
+            publish_analytics_result(analytics_result)
 
             logger.info(f"[analytics-worker] Analyzed order {order_id}, published result to aggregator_queue.")
-            ch.basic_ack(delivery_tag=method.delivery_tag)
         except Exception as e:
             logger.error("Analytics worker failed to process message", exc_info=True)
-            ch.basic_ack(delivery_tag=method.delivery_tag)
 
+
+@celery_app.task(name='worker.send_to_aggregator')
+def send_to_aggregator(analytics_result):
+    tracer = trace.get_tracer(__name__)
+    with tracer.start_as_current_span("send_to_aggregator", kind=trace.SpanKind.PRODUCER) as span:
+        span.set_attribute("messaging.system", "rabbitmq")
+        span.set_attribute("messaging.destination.name", aggregator_queue)
+        span.set_attribute("messaging.operation.name", "send")
+        
+        # connection = pika.BlockingConnection(pika.ConnectionParameters(host="duck-queue-service"))
+        # channel = connection.channel()
+        # channel.queue_declare(queue=aggregator_queue, durable=True)
+        # channel.basic_publish(exchange="", routing_key=aggregator_queue, body=json.dumps(analytics_result))
+        # connection.close()
+        logger.info(f"Sent analytics result to aggregator queue: {analytics_result}")
 
 def main():
-    logger.info("[analytics-worker] Connecting to RabbitMQ...")
-    connection = pika.BlockingConnection(pika.ConnectionParameters(host=rabbit_host))
-    channel = connection.channel()
-
-    # Declare the necessary queues and exchanges
-    channel.exchange_declare(exchange=fanout_exchange, exchange_type="fanout", durable=True)
-    channel.queue_declare(queue=analytics_queue, durable=True)
-    channel.queue_bind(exchange=fanout_exchange, queue=analytics_queue)
-
-    # Declare the aggregator queue for final results
-    channel.queue_declare(queue=aggregator_queue, durable=True)
-
-    logger.info("[analytics-worker] Starting to consume from analytics_queue...")
-    channel.basic_consume(queue=analytics_queue, on_message_callback=analyze_order, auto_ack=False)
-    channel.start_consuming()
+    logger.info("[analytics-worker] Starting Celery worker...")
+    # No need to connect to RabbitMQ or consume directly; Celery handles that.
 
 
 if __name__ == "__main__":

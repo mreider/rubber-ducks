@@ -1,7 +1,37 @@
+import os
+OTEL_ENABLED = os.getenv("OTEL_ENABLED", "true").lower() != "false"
+
+if OTEL_ENABLED:
+    from opentelemetry import trace
+    from opentelemetry.trace import SpanKind, Link
+    from opentelemetry.propagate import inject, extract
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+else:
+    class DummyCtx:
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc_val, exc_tb): pass
+        def set_attribute(self, key, value): pass
+        def link(self, link): pass
+    class DummyTracer:
+        def start_as_current_span(self, name, **kwargs):
+            return DummyCtx()
+        def get_tracer(self, name):
+            return self
+    trace = DummyTracer()
+    SpanKind = type("SpanKind", (), {"SERVER": None, "CLIENT": None, "PRODUCER": None, "CONSUMER": None})
+    def inject(headers): pass
+    def extract(headers): return {}
+    Resource = lambda **kwargs: {}
+    OTLPSpanExporter = lambda **kwargs: None
+    BatchSpanProcessor = lambda exporter: None
+
 import json
 import logging
 import uuid
-import pika
+# import pika  # Removed pika import
 import os
 from flask import Flask, request, jsonify
 from opentelemetry import trace
@@ -12,7 +42,7 @@ from opentelemetry.trace import SpanKind
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-
+from celery import Celery  # Added celery import
 
 
 # Initialize logging and OpenTelemetry tracer
@@ -28,6 +58,11 @@ if not dt_endpoint or not dt_api_token:
 # RabbitMQ exchange setup
 rabbit_host = "duck-queue-service"
 fanout_exchange = "duck_orders_fanout"
+
+# Celery configuration
+celery_app = Celery('order_ducks',
+                    broker='pyamqp://guest@duck-queue-service//',  # RabbitMQ broker URL
+                    backend='redis://duck-db-service:6379/0')  # Redis backend URL
 
 
 metadata = {}
@@ -47,6 +82,8 @@ for file_path in [
 # Add custom metadata
 metadata.update({
     "service.name": "proxy-server",
+    'deployment.environment': os.getenv("ENVIRONMENT", "development"),
+    "service.namespace": os.getenv("NAMESPACE", "default"),
     "service.version": "1.0.0"
 })
 
@@ -71,7 +108,8 @@ def publish_order_message(order_msg):
     tracer = trace.get_tracer(__name__)
 
     # Create the order span (this is part of the order trace)
-    with tracer.start_as_current_span("order_creation", kind=SpanKind.SERVER) as span:
+    # Changed span kind from SERVER to PRODUCER
+    with tracer.start_as_current_span("order_creation", kind=SpanKind.PRODUCER) as span:
         span.set_attribute("order_id", order_msg.get("id"))
         span.set_attribute("duck_type", order_msg.get("duck_type"))
         
@@ -82,20 +120,45 @@ def publish_order_message(order_msg):
         order_msg["trace_id"] = span.context.trace_id
 
         # Connect to RabbitMQ and publish message
-        conn = pika.BlockingConnection(pika.ConnectionParameters(host=rabbit_host))
-        ch = conn.channel()
-        ch.exchange_declare(exchange=fanout_exchange, exchange_type="fanout", durable=True)
+        # conn = pika.BlockingConnection(pika.ConnectionParameters(host=rabbit_host))  # Removed pika connection
+        # ch = conn.channel()
+        # ch.exchange_declare(exchange=fanout_exchange, exchange_type="fanout", durable=True)
 
-        ch.basic_publish(
+        # ch.basic_publish(
+        #     exchange=fanout_exchange,
+        #     routing_key="",  # Ignored by fanout
+        #     body=json.dumps(order_msg),
+        #     properties=pika.BasicProperties(headers=headers)
+        # )
+        # ch.close()
+        # conn.close()
+
+        # Publish the message using Celery task
+        publish_order.apply_async(args=[order_msg, headers], queue=fanout_exchange)
+
+        logger.info(f"[order-ducks-service] Published order to fanout: {order_msg}")
+
+@celery_app.task(name='order_ducks.publish_order')
+def publish_order(order_msg, headers):
+    tracer = trace.get_tracer(__name__)
+    with tracer.start_as_current_span("publish_order", kind=SpanKind.PRODUCER) as span:
+        span.set_attribute("messaging.system", "rabbitmq")
+        span.set_attribute("messaging.destination.name", fanout_exchange)
+        span.set_attribute("messaging.operation.name", "send")
+
+        connection = pika.BlockingConnection(pika.ConnectionParameters(host=rabbit_host))
+        channel = connection.channel()
+        channel.exchange_declare(exchange=fanout_exchange, exchange_type="fanout", durable=True)
+
+        channel.basic_publish(
             exchange=fanout_exchange,
-            routing_key="",  # Ignored by fanout
+            routing_key="",  # Ignored by fanout exchange
             body=json.dumps(order_msg),
             properties=pika.BasicProperties(headers=headers)
         )
-        ch.close()
-        conn.close()
-
-        logger.info(f"[order-ducks-service] Published order to fanout: {order_msg}")
+        channel.close()
+        connection.close()
+        logger.info(f"Published order message: {order_msg}")
 
 @app.route("/api/order", methods=["POST"])
 def create_order():

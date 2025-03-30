@@ -5,5 +5,4 @@ opentelemetry-instrumentation
 opentelemetry-instrumentation-requests
 flask
 redis
-pika
 requests

@@ -4,13 +4,35 @@ import requests
 import time
 import sys
 import os
-from opentelemetry import trace
-from opentelemetry.trace import SpanKind
-from opentelemetry.propagate import inject
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+OTEL_ENABLED = os.getenv("OTEL_ENABLED", "true").lower() != "false"
+
+if OTEL_ENABLED:
+    from opentelemetry import trace
+    from opentelemetry.trace import SpanKind
+    from opentelemetry.propagate import inject
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+else:
+    class DummyCtx:
+        def __enter__(self): return self
+        def __exit__(self, exc_type, exc_val, exc_tb): pass
+        def set_attribute(self, key, value): pass
+        def link(self, link): pass
+    class DummyTracer:
+        def start_as_current_span(self, name, **kwargs):
+            return DummyCtx()
+        def get_tracer(self, name):
+            return self
+    trace = DummyTracer()
+    SpanKind = type("SpanKind", (), {"CLIENT": None})
+    def inject(headers): pass
+    Resource = lambda **kwargs: {}
+    TracerProvider = lambda **kwargs: None
+    OTLPSpanExporter = lambda **kwargs: None
+    BatchSpanProcessor = lambda exporter: None
 
 dt_endpoint = os.getenv("DT_ENDPOINT", "http://localhost:4317")
 dt_api_token = os.getenv("DT_API_TOKEN", "")
