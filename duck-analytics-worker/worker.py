@@ -58,7 +58,6 @@ metadata = {}
 for file_path in [
     "dt_metadata_e617c525669e072eebe3d0f08212e8f2.json",
     "/var/lib/dynatrace/enrichment/dt_metadata.json",
-    "/var/lib/dynatrace/enrichment/dt_host_metadata.json"
 ]:
     try:
         with open(file_path) as f:
