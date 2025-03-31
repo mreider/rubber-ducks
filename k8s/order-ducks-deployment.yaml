@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: order-ducks
-          image: gcr.io/dynatrace-dev-on-demand/order-ducks:latest  # Use 'latest' or your preferred tag
+          image: mreider/order-ducks:latest  # Use 'latest' or your preferred tag
           imagePullPolicy: Always  # Forces Kubernetes to pull the image from GCR
           ports:
             - containerPort: 5000

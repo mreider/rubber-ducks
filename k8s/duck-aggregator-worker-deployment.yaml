@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: duck-aggregator-worker
-        image: gcr.io/dynatrace-dev-on-demand/duck-aggregator-worker:latest
+        image: mreider/duck-aggregator-worker:latest
         imagePullPolicy: Always  # Ensures the image is pulled every time
         env:
         - name: DT_API_TOKEN
