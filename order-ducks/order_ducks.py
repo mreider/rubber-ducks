@@ -71,7 +71,7 @@ def publish_order_message(order_msg):
     tracer = trace.get_tracer(__name__)
 
     # Create the order span (this is part of the order trace)
-    with tracer.start_as_current_span("order_creation", kind=SpanKind.SERVER) as span:
+    with tracer.start_as_current_span("order_creation", kind=SpanKind.PRODUCER) as span:
         span.set_attribute("order_id", order_msg.get("id"))
         span.set_attribute("duck_type", order_msg.get("duck_type"))
         
