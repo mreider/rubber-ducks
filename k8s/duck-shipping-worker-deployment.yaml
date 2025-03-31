@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: duck-shipping-worker
-        image: gcr.io/dynatrace-dev-on-demand/duck-shipping-worker:latest
+        image: mreider/duck-shipping-worker:latest
         imagePullPolicy: Always  # Ensures the image is pulled every time
         env:
         - name: DT_API_TOKEN

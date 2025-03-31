@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: proxy-server
-          image: gcr.io/dynatrace-dev-on-demand/proxy-server:latest  # Use 'latest' or your preferred tag
+          image: mreider/proxy-server:latest  # Use 'latest' or your preferred tag
           imagePullPolicy: Always  # Ensures the image is pulled every time
           ports:
             - containerPort: 5001

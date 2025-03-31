@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: duck-queue
-          image: gcr.io/dynatrace-dev-on-demand/duck-queue:latest  # Use 'latest' or your preferred tag
+          image: mreider/duck-queue:latest  # Use 'latest' or your preferred tag
           imagePullPolicy: Always  # Ensures the image is pulled every time
           ports:
             - containerPort: 5672

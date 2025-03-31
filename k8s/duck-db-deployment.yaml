@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: duck-db
-          image: gcr.io/dynatrace-dev-on-demand/duck-db:latest  # Use 'latest' or your preferred tag
+          image: mreider/duck-db:latest  # Use 'latest' or your preferred tag
           imagePullPolicy: Always  # Ensures the image is pulled every time
           ports:
             - containerPort: 6379
