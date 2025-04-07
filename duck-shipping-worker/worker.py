@@ -16,8 +16,8 @@ from opentelemetry._logs import set_logger_provider
 from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.propagate import extract, inject
-
 from opentelemetry.instrumentation.redis import RedisInstrumentor
+
 RedisInstrumentor().instrument()
 
 dt_endpoint = os.getenv("DT_ENDPOINT", "http://localhost:4317")

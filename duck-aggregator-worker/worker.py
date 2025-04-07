@@ -58,7 +58,10 @@ logger_provider = LoggerProvider(resource=resource)
 set_logger_provider(logger_provider)
 logger_provider.add_log_record_processor(
     BatchLogRecordProcessor(
-        OTLPLogExporter(endpoint=f"{dt_endpoint}/v1/logs", headers={"Authorization": f"Api-Token {dt_api_token}"})
+        OTLPLogExporter(
+            endpoint=f"{dt_endpoint}/v1/logs",
+            headers={"Authorization": f"Api-Token {dt_api_token}"}
+        )
     )
 )
 
@@ -70,21 +73,18 @@ redis_client = redis.StrictRedis(host='duck-db-service', port=6379, db=0)
 
 def on_message(ch, method, properties, body):
     tracer = trace.get_tracer(__name__)
-    # Extract headers from the pika properties if available
+    # Extract headers from pika properties if available
     received_headers = properties.headers if properties and properties.headers else {}
-
-    # Extract trace context from the incoming message headers
+    # Extract trace context from incoming message headers
     ctx = extract(received_headers)
     
-    # Create span for consuming from RabbitMQ
     with tracer.start_as_current_span("aggregator_consume", context=ctx, kind=SpanKind.CONSUMER) as span:
         span.set_attribute("messaging.system", "rabbitmq")
         span.set_attribute("messaging.destination.name", "aggregator_queue")
         span.set_attribute("messaging.operation.name", "consume")
         try:
-            # Assume the message body is a JSON string
+            # Assume the body contains a JSON string with a nested "body" field
             data = json.loads(body.decode("utf-8"))
-            # Assuming the message follows the structure: {"body": "<json payload>"}
             msg = json.loads(data.get("body", "{}"))
             order_id = msg.get("order_id")
             span.set_attribute("order_id", order_id)
@@ -95,19 +95,19 @@ def on_message(ch, method, properties, body):
     
             logger.info(f"[aggregator-worker] Got partial result: {msg}")
     
-            # Separate Redis span for interacting with Redis
+            # Create a separate span for the Redis operation
             with tracer.start_as_current_span("redis_set", kind=SpanKind.CLIENT) as redis_span:
                 redis_span.set_attribute("db.system", "redis")
                 redis_span.set_attribute("db.operation", "set")
                 redis_span.set_attribute("redis.key", order_id)
-    
                 redis_client.set(order_id, json.dumps(msg))
                 redis_span.set_attribute("redis.result", "stored")
                 logger.info(f"Stored partial result for order_id {order_id} in Redis")
         
         except Exception as e:
             logger.error("Aggregator worker failed to process message", exc_info=True)
-    # Acknowledge the message after processing
+    
+    # Acknowledge message after processing
     ch.basic_ack(delivery_tag=method.delivery_tag)
 
 def main():
@@ -117,7 +117,6 @@ def main():
     channel.queue_declare(queue="aggregator_queue", durable=True)
     channel.basic_qos(prefetch_count=1)
     channel.basic_consume(queue="aggregator_queue", on_message_callback=on_message)
-    
     try:
         channel.start_consuming()
     except KeyboardInterrupt:
