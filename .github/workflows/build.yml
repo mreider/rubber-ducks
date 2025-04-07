@@ -22,28 +22,28 @@ jobs:
 
     - name: Build and Push duck-shipping-worker Image
       run: |
-        docker buildx build --push -t mreider/duck-shipping-worker:${{ github.run_number }} -f duck-shipping-worker/Dockerfile duck-shipping-worker/
+        docker buildx build --push -t mreider/duck-shipping-worker:${{ github.run_number }} -t mreider/duck-shipping-worker:latest -f duck-shipping-worker/Dockerfile duck-shipping-worker/
 
     - name: Build and Push duck-analytics-worker Image
       run: |
-        docker buildx build --push -t mreider/duck-analytics-worker:${{ github.run_number }} -f duck-analytics-worker/Dockerfile duck-analytics-worker/
+        docker buildx build --push -t mreider/duck-analytics-worker:${{ github.run_number }} -t mreider/duck-analytics-worker:latest -f duck-analytics-worker/Dockerfile duck-analytics-worker/
 
     - name: Build and Push duck-aggregator-worker Image
       run: |
-        docker buildx build --push -t mreider/duck-aggregator-worker:${{ github.run_number }} -f duck-aggregator-worker/Dockerfile duck-aggregator-worker/
+        docker buildx build --push -t mreider/duck-aggregator-worker:${{ github.run_number }} -t mreider/duck-aggregator-worker:latest -f duck-aggregator-worker/Dockerfile duck-aggregator-worker/
 
     - name: Build and Push order-ducks Image
       run: |
-        docker buildx build --push -t mreider/order-ducks:${{ github.run_number }} -f order-ducks/Dockerfile order-ducks/
+        docker buildx build --push -t mreider/order-ducks:${{ github.run_number }} -t mreider/order-ducks:latest -f order-ducks/Dockerfile order-ducks/
 
     - name: Build and Push proxy-server Image
       run: |
-        docker buildx build --push -t mreider/proxy-server:${{ github.run_number }} -f proxy-server/Dockerfile proxy-server/
+        docker buildx build --push -t mreider/proxy-server:${{ github.run_number }} -t mreider/proxy-server:latest -f proxy-server/Dockerfile proxy-server/
     
     - name: Build and Push duck-db
       run: |
-        docker buildx build --push -t mreider/duck-db:${{ github.run_number }} -f duck-db/Dockerfile duck-db/
+        docker buildx build --push -t mreider/duck-db:${{ github.run_number }} -t mreider/duck-db:latest -f duck-db/Dockerfile duck-db/
 
     - name: Build and Push duck-queue
       run: |
-        docker buildx build --push -t mreider/duck-queue:${{ github.run_number }} -f duck-queue/Dockerfile duck-queue/
+        docker buildx build --push -t mreider/duck-queue:${{ github.run_number }} -t mreider/duck-queue:latest -f duck-queue/Dockerfile duck-queue/
